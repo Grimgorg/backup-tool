@@ -177,6 +177,13 @@ class App:
         self._refresh_account()
         self._set_busy(False)
         root.after(50, self._poll_events)
+        root.after(200, self._recover_if_needed)
+
+    def _recover_if_needed(self):
+        # A sync that ended without cleaning up (crash, power loss) leaves its moved-aside files in !orphaned.
+        if Engine.needs_recovery(self.settings):
+            settings = dict(self.settings)
+            self._run(lambda: self.engine.recover(settings), on_done=lambda _: None)
 
     # --- layout -----------------------------------------------------------------------------------
 

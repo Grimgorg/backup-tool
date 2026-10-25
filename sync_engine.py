@@ -54,6 +54,7 @@ RATE_LINE = re.compile(r'^\s*[\d.]+MB\s+([\d.]+)MB/s')
 REMAINING_LINE = re.compile(r'^([\d.]+)GB remaining$')
 
 WHOLE_FOLDER = '(whole folder)'
+CREATE_SUSPENDED = 0x00000004
 
 
 def load_settings():
@@ -82,6 +83,79 @@ def format_size(b):
         if b >= factor:
             return '%.2f %s' % (b / factor, unit)
     return '%d B' % b
+
+
+class _Job:
+    """Windows job object for one gogrepoc run. It kills the processes in it when the app ends in any way
+    (also when it is killed or crashes), so gogrepoc never keeps running unseen, and terminate() also
+    reaches processes gogrepoc's launcher started (the venv python.exe is a launcher, for one)."""
+    _kernel32 = None
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+        if _Job._kernel32 is None:
+            k = ctypes.WinDLL('kernel32', use_last_error=True)
+            k.CreateJobObjectW.restype = wintypes.HANDLE
+            k.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+            k.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
+            k.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+            k.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+            k.CloseHandle.argtypes = (wintypes.HANDLE,)
+            _Job._kernel32 = k
+        self._ctypes = ctypes
+        self.handle = self._kernel32.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        info = _JobLimits()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not self._kernel32.SetInformationJobObject(self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def start(self, proc):
+        """Adds proc, which was created with CREATE_SUSPENDED, and lets it run. Assigning it before it runs
+        makes every process it starts a member of the job too."""
+        try:
+            if not self._kernel32.AssignProcessToJobObject(self.handle, int(proc._handle)):
+                raise self._ctypes.WinError(self._ctypes.get_last_error())
+        finally:
+            self._ctypes.windll.ntdll.NtResumeProcess(self._ctypes.c_void_p(int(proc._handle)))
+
+    def terminate(self):
+        if self.handle:
+            self._kernel32.TerminateJobObject(self.handle, 1)
+
+    def close(self):
+        if self.handle:
+            self._kernel32.CloseHandle(self.handle)
+            self.handle = None
+
+
+def _job_limits_struct():
+    import ctypes
+    from ctypes import wintypes
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in (
+            'ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
+            'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                    ('LimitFlags', wintypes.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                    ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', wintypes.DWORD),
+                    ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD),
+                    ('SchedulingClass', wintypes.DWORD)]
+
+    class ExtendedLimits(ctypes.Structure):  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        _fields_ = [('BasicLimitInformation', BasicLimits), ('IoInfo', IoCounters),
+                    ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                    ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+    return ExtendedLimits
+
+
+_JobLimits = _job_limits_struct()
 
 
 class Cancelled(Exception):
@@ -126,7 +200,7 @@ class Engine:
         self.status = status
         self.progress = progress
         self.ask = ask
-        self._proc = None
+        self._job = None
         self._cancelled = False
         self._logfile = None
 
@@ -134,9 +208,9 @@ class Engine:
 
     def cancel(self):
         self._cancelled = True
-        proc = self._proc
-        if proc and proc.poll() is None:
-            proc.kill()
+        job = self._job
+        if job:
+            job.terminate()
 
     def _check_cancelled(self):
         if self._cancelled:
@@ -170,9 +244,21 @@ class Engine:
             cmd = [sys.executable, os.path.join(DATA_DIR, 'gog_sync.py'), '--gogrepoc'] + args
         env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8')
         self.log('> gogrepoc ' + ' '.join(args))
-        self._proc = proc = subprocess.Popen(
-            cmd, cwd=DATA_DIR, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
+        job = _Job()
+        proc = subprocess.Popen(
+            cmd, cwd=DATA_DIR, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW | CREATE_SUSPENDED)
+        self._job = job
+        try:
+            job.start(proc)
+        except OSError:
+            job.terminate()
+            proc.wait()
+            job.close()
+            self._job = None
+            raise
+        if self._cancelled:  # cancel() ran before self._job was set
+            job.terminate()
         if stdin_text is not None:
             proc.stdin.write(stdin_text.encode('utf-8'))
             proc.stdin.flush()
@@ -206,7 +292,8 @@ class Engine:
                     proc.stdin.flush()
         finally:
             proc.wait()
-            self._proc = None
+            self._job = None
+            job.close()
             if self._logfile:
                 self._logfile.flush()
         self._check_cancelled()
@@ -215,10 +302,11 @@ class Engine:
         return messages
 
     def _organize(self, command, save_dir):
-        writer = _LineWriter(self.log)
-        with contextlib.redirect_stdout(writer):
+        organize.output = self.log
+        try:
             getattr(organize, 'cmd_' + command)(save_dir, False)
-        writer.flush()
+        finally:
+            organize.output = print
 
     @staticmethod
     def _filter_args(settings):
@@ -273,6 +361,21 @@ class Engine:
             shutil.rmtree(orphan_dir)
 
     # --- operations -------------------------------------------------------------------------------
+
+    @staticmethod
+    def needs_recovery(settings):
+        """True if a sync was interrupted (crash, power loss) while files were moved aside."""
+        return os.path.isdir(Engine._orphan_dir(settings))
+
+    def recover(self, settings):
+        with self._session('recover'):
+            self.status('Restoring files from an interrupted sync...')
+            self.progress(None)
+            self._restore_orphans(settings)
+            if settings['sort']:
+                self.status('Sorting files...')
+                self._organize('sort', settings['save_dir'])
+            self.status('Restored the files of an interrupted sync. Nothing was deleted.')
 
     def login(self, username, password):
         with self._session('login'):
@@ -441,26 +544,6 @@ def _manifest_sizes():
 
 def _tree_size(path):
     return sum(os.path.getsize(os.path.join(root, f)) for root, _, files in os.walk(path) for f in files)
-
-
-class _LineWriter:
-    """File-like object that hands complete lines to a callback (used to capture organize's prints)."""
-
-    def __init__(self, callback):
-        self._callback = callback
-        self._buffer = ''
-
-    def write(self, text):
-        self._buffer += text
-        *lines, self._buffer = self._buffer.split('\n')
-        for line in lines:
-            self._callback(line)
-        return len(text)
-
-    def flush(self):
-        if self._buffer:
-            self._callback(self._buffer)
-            self._buffer = ''
 
 
 def run_gogrepoc(argv):

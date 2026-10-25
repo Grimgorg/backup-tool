@@ -15,6 +15,8 @@ INSTALLER_DIR = 'Installer'
 EXTRAS_DIR = 'Extras'
 MANAGED_DIRS = (INSTALLER_DIR, EXTRAS_DIR)
 SKIP_GAME_DIRS = ('!downloading', '!orphaned')
+# Where messages go; GoG Sync replaces it to collect them in its log.
+output = print
 
 EXTRA_CATEGORIES = {
     'game add-ons': 'Add-ons',
@@ -71,7 +73,7 @@ def target_dirs(game):
 
 
 def move(src, dst, game_path, dryrun):
-    print('  {}: {} -> {}'.format(os.path.basename(game_path), os.path.relpath(src, game_path), os.path.relpath(dst, game_path)))
+    output('  {}: {} -> {}'.format(os.path.basename(game_path), os.path.relpath(src, game_path), os.path.relpath(dst, game_path)))
     if not dryrun:
         make_dirs(game_path, os.path.relpath(os.path.dirname(dst), game_path))
         os.rename(src, dst)
@@ -110,11 +112,11 @@ def cmd_sort(savedir, dryrun):
                 continue
             dst = os.path.join(path, rel_dir, file_name)
             if os.path.exists(dst):
-                print('  WARNING: {} already exists, leaving {} in place'.format(dst, src))
+                output('  WARNING: {} already exists, leaving {} in place'.format(dst, src))
                 continue
             move(src, dst, path, dryrun)
             moved += 1
-    print('sort: {} file(s) {}moved'.format(moved, 'would be ' if dryrun else ''))
+    output('sort: {} file(s) {}moved'.format(moved, 'would be ' if dryrun else ''))
 
 
 def cmd_flatten(savedir, dryrun):
@@ -129,7 +131,7 @@ def cmd_flatten(savedir, dryrun):
                     src = os.path.join(root, file_name)
                     dst = os.path.join(path, file_name)
                     if os.path.exists(dst):
-                        print('  WARNING: {} already exists, leaving {} in place'.format(dst, src))
+                        output('  WARNING: {} already exists, leaving {} in place'.format(dst, src))
                         continue
                     move(src, dst, path, dryrun)
                     moved += 1
@@ -138,7 +140,7 @@ def cmd_flatten(savedir, dryrun):
                 for root, dirs, files in os.walk(managed_path, topdown=False):
                     if not os.listdir(root):
                         os.rmdir(root)
-    print('flatten: {} file(s) {}moved'.format(moved, 'would be ' if dryrun else ''))
+    output('flatten: {} file(s) {}moved'.format(moved, 'would be ' if dryrun else ''))
 
 
 def main(argv):
