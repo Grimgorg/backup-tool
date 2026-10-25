@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+
+# Local state written by gogrepoc / the sync (login token is a secret)
+gog-token.dat
+gog-manifest.dat*
+gog-resume-manifest.dat*
+gogrepo.log
+logs/
