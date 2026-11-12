@@ -1,0 +1,9 @@
+# Runtime dependencies of Vault Sync. To build, also install pyinstaller (see README).
+sv-ttk
+# gogrepoc (GOG tab)
+requests
+html5lib
+python-dateutil
+pytz
+psutil
+pyobjc-framework-Cocoa; sys_platform == "darwin"

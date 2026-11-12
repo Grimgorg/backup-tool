@@ -1,16 +1,17 @@
 ﻿# Sorts the flat per-game folders written by gogrepoc into subfolders, and flattens them back.
-# gogrepoc only finds files directly in <savedir>\<game>\, so sync.ps1 flattens before running it
+# gogrepoc only finds files directly in <savedir>/<game>/, so the GOG engine flattens before running it
 # and sorts again afterwards. Moves stay on the same drive, so both directions are instant renames.
 # Usage:
-#   python organize.py sort <savedir> [-dryrun]
-#   python organize.py flatten <savedir> [-dryrun]
+#   python -m vaultsync.gog.organize sort <savedir> [-dryrun]
+#   python -m vaultsync.gog.organize flatten <savedir> [-dryrun]
 import ast
 import os
 import re
 import sys
 from collections import defaultdict
 
-MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gog-manifest.dat')
+# Set by vaultsync.gog.engine to the manifest in the app data folder.
+MANIFEST = 'gog-manifest.dat'
 INSTALLER_DIR = 'Installer'
 EXTRAS_DIR = 'Extras'
 MANAGED_DIRS = (INSTALLER_DIR, EXTRAS_DIR)
@@ -144,6 +145,7 @@ def cmd_flatten(savedir, dryrun):
 
 
 def main(argv):
+    from vaultsync.gog import engine  # noqa: F401  (points MANIFEST at the app data folder)
     args = [a for a in argv if a != '-dryrun']
     dryrun = len(args) != len(argv)
     if len(args) != 2 or args[0] not in ('sort', 'flatten'):

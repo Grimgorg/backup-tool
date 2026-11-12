@@ -1,0 +1,99 @@
+# Tests and builds Vault Sync for Windows, macOS and Linux. Every run uploads the builds as workflow artifacts;
+# pushing a tag like v1.0.0 also publishes them as a GitHub release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: VaultSync-windows-x64
+          - os: macos-latest
+            artifact: VaultSync-macos-arm64
+          # The oldest supported Ubuntu, so the binary also runs on distributions with an older glibc.
+          - os: ubuntu-22.04
+            artifact: VaultSync-linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Tk and a virtual display (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk tk xvfb
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Test
+        run: python -m unittest discover -t . -s tests -v
+
+      - name: Build
+        run: python build.py
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) app="dist/Vault Sync.exe" ;;
+            macOS)   app="dist/Vault Sync.app/Contents/MacOS/Vault Sync" ;;
+            Linux)   app="dist/vault-sync" ;;
+          esac
+          # The bundled gogrepoc and its dependencies load.
+          "$app" --gogrepoc -h | tee gogrepoc-help.txt
+          grep -q "usage" gogrepoc-help.txt
+          # The window opens and keeps running until it is stopped (exit code 124 = stopped by timeout).
+          if [ "$RUNNER_OS" = Linux ]; then
+            export VAULT_SYNC_HOME="$RUNNER_TEMP/vault-sync-home"
+            status=0; timeout 15 xvfb-run -a "$app" || status=$?
+            test "$status" -eq 124
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p out
+          case "$RUNNER_OS" in
+            Windows) 7z a "out/${{ matrix.artifact }}.zip" "./dist/Vault Sync.exe" ;;
+            macOS)   ditto -c -k --keepParent "dist/Vault Sync.app" "out/${{ matrix.artifact }}.zip" ;;
+            Linux)   tar -czf "out/${{ matrix.artifact }}.tar.gz" -C dist vault-sync ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

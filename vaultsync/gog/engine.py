@@ -1,46 +1,51 @@
-# Sync logic of GoG Sync (formerly sync.ps1): runs gogrepoc as a child process, previews what a sync would
-# download and delete, and applies it while keeping the export folder an exact mirror of the library.
+# GOG sub-app logic: runs gogrepoc as a child process, previews what a sync would download and delete, and
+# applies it while keeping the export folder an exact mirror of the library.
 # Files to delete are first moved to !orphaned, deleted once all downloads are complete, and moved back if
 # anything fails or the sync is cancelled.
+import atexit
 import codecs
 import contextlib
 import datetime
-import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
 from dataclasses import dataclass, field
 
-import organize
+from vaultsync import SOURCE_ROOT, paths
+from vaultsync.common import Cancelled, SyncError, format_size, load_json, save_json
+from vaultsync.gog import organize
 
 FROZEN = getattr(sys, 'frozen', False)
-# gogrepoc keeps its token, manifest and log in the working directory, which is the folder of the exe
-# (or of this script when run from source).
-DATA_DIR = os.path.dirname(os.path.abspath(sys.executable if FROZEN else __file__))
-GOGREPOC_DIR = os.path.join(DATA_DIR, 'gogrepoc')
-TOKEN_FILE = os.path.join(DATA_DIR, 'gog-token.dat')
-MANIFEST_FILE = os.path.join(DATA_DIR, 'gog-manifest.dat')
-SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
-LOG_DIR = os.path.join(DATA_DIR, 'logs')
+GOGREPOC_DIR = os.path.join(SOURCE_ROOT, 'gogrepoc')
+# gogrepoc keeps its token, manifest and log in its working directory, which is this folder.
+WORK_DIR = os.path.join(paths.DATA_DIR, 'gog')
+TOKEN_FILE = os.path.join(WORK_DIR, 'gog-token.dat')
+MANIFEST_FILE = os.path.join(WORK_DIR, 'gog-manifest.dat')
+SETTINGS_FILE = os.path.join(paths.CONFIG_DIR, 'gog', 'settings.json')
 ORPHAN_DIR_NAME = '!orphaned'
+
+# Files that older versions (GoG Sync) kept next to the exe; copied over once by migrate_legacy_data().
+LEGACY_DIR = os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else SOURCE_ROOT
+LEGACY_FILES = ('gog-token.dat', 'gog-manifest.dat', 'gog-manifest.dat.bak',
+                'gog-resume-manifest.dat', 'gog-resume-manifest.dat.bak')
 
 organize.MANIFEST = MANIFEST_FILE
 
 DEFAULT_SETTINGS = {
-    'save_dir': r'D:\GOG Export',
+    'save_dir': os.path.join(os.path.expanduser('~'), 'GOG Library'),
     'os': ['windows'],
-    'langs': ['en', 'de'],
+    'langs': ['en'],
     'extras': True,
     'full_scan': True,
     'verify': False,
     'sort': True,
     # Files not needed for a fresh install (glob patterns, matched case-insensitively):
-    #  - incremental "old version to new version" patches; the full installer is already the latest version
-    #  - Witcher 3 language-pack patches (GOG lists them as extras, so -lang doesn't filter them); keeps only DE
-    'skip_files': ['patch_*_to_*', 'patch_witcher3_[!d]?_goty_*'],
+    # incremental "old version to new version" patches; the full installer is already the latest version.
+    'skip_files': ['patch_*_to_*'],
 }
 
 # Console lines of gogrepoc look like "17:37:06 | message"; prompts from input() have no prefix.
@@ -48,42 +53,49 @@ LOG_PREFIX = re.compile(r'^\d\d:\d\d:\d\d \| ?')
 GAME_LINE = re.compile(r'^\{(.+)\}$')
 DOWNLOAD_LINE = re.compile(r'^\s+(download|working|error)\s+(.+)$')
 ORPHAN_DIR_LINE = re.compile(r"^orphaning dir\s+'(.+)'$")
-ORPHAN_FILE_LINE = re.compile(r"^orphaning file '(.+?)\\(.+)'( as it has been marked for change\.)?$")
+ORPHAN_FILE_LINE = re.compile(r"^orphaning file '(.+?)[\\/](.+)'( as it has been marked for change\.)?$")
 DETAILS_LINE = re.compile(r'^\(\s*(\d+) / (\d+)\) fetching game details for (.+?)\.*$')
 RATE_LINE = re.compile(r'^\s*[\d.]+MB\s+([\d.]+)MB/s')
 REMAINING_LINE = re.compile(r'^([\d.]+)GB remaining$')
 
 WHOLE_FOLDER = '(whole folder)'
-CREATE_SUSPENDED = 0x00000004
+
+
+def migrate_legacy_data():
+    """Copies login, manifests and settings of an older GoG Sync install (kept next to its exe) into the
+    app data folders, once. The old files are left in place. Returns the names of the copied files."""
+    if os.path.exists(TOKEN_FILE) or os.path.exists(SETTINGS_FILE):
+        return []
+    copied = []
+    for name in LEGACY_FILES:
+        src = os.path.join(LEGACY_DIR, name)
+        if os.path.isfile(src):
+            os.makedirs(WORK_DIR, exist_ok=True)
+            shutil.copy2(src, os.path.join(WORK_DIR, name))
+            copied.append(name)
+    legacy_settings = os.path.join(LEGACY_DIR, 'settings.json')
+    if os.path.isfile(legacy_settings) and 'save_dir' in load_json(legacy_settings, {}):
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        shutil.copy2(legacy_settings, SETTINGS_FILE)
+        copied.append('settings.json')
+    return copied
 
 
 def load_settings():
     settings = dict(DEFAULT_SETTINGS)
-    try:
-        with open(SETTINGS_FILE, encoding='utf-8') as f:
-            settings.update(json.load(f))
-    except FileNotFoundError:
-        pass
+    settings.update(load_json(SETTINGS_FILE, {}))
     return settings
 
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2)
+    save_json(SETTINGS_FILE, settings)
 
 
 def is_logged_in():
     return os.path.isfile(TOKEN_FILE)
 
 
-def format_size(b):
-    if b is None:
-        return ''
-    for unit, factor in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
-        if b >= factor:
-            return '%.2f %s' % (b / factor, unit)
-    return '%d B' % b
-
+# --- child process --------------------------------------------------------------------------------
 
 class _Job:
     """Windows job object for one gogrepoc run. It kills the processes in it when the app ends in any way
@@ -107,7 +119,7 @@ class _Job:
         self.handle = self._kernel32.CreateJobObjectW(None, None)
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
-        info = _JobLimits()
+        info = _job_limits_struct()()
         info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if not self._kernel32.SetInformationJobObject(self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
             raise ctypes.WinError(ctypes.get_last_error())
@@ -155,16 +167,66 @@ def _job_limits_struct():
     return ExtendedLimits
 
 
-_JobLimits = _job_limits_struct()
+def _die_with_parent():
+    # Linux only: the child gets SIGKILL when the thread that started it ends, also if the app crashes.
+    try:
+        import ctypes
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
 
 
-class Cancelled(Exception):
-    pass
+_running = set()
 
 
-class SyncError(Exception):
-    pass
+@atexit.register
+def _kill_running():
+    for child in list(_running):
+        child.terminate()
 
+
+class _Child:
+    """One gogrepoc process. terminate() also stops everything it started, and the process does not outlive
+    the app: on Windows through a job object, elsewhere through its own process group (and on Linux a
+    parent-death signal)."""
+
+    def __init__(self, cmd, cwd, env):
+        common = dict(cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.job = None
+        if os.name == 'nt':
+            self.job = _Job()
+            self.proc = subprocess.Popen(
+                cmd, creationflags=subprocess.CREATE_NO_WINDOW | 0x00000004,  # CREATE_SUSPENDED
+                **common)
+            try:
+                self.job.start(self.proc)
+            except OSError:
+                self.job.terminate()
+                self.proc.wait()
+                self.job.close()
+                raise
+        else:
+            self.proc = subprocess.Popen(
+                cmd, start_new_session=True,
+                preexec_fn=_die_with_parent if sys.platform.startswith('linux') else None, **common)
+        _running.add(self)
+
+    def terminate(self):
+        if self.job:
+            self.job.terminate()
+        else:
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def close(self):
+        _running.discard(self)
+        if self.job:
+            self.job.close()
+
+
+# --- plan -----------------------------------------------------------------------------------------
 
 @dataclass
 class Item:
@@ -200,7 +262,8 @@ class Engine:
         self.status = status
         self.progress = progress
         self.ask = ask
-        self._job = None
+        self._child = None
+        self._lock = threading.Lock()
         self._cancelled = False
         self._logfile = None
 
@@ -208,9 +271,9 @@ class Engine:
 
     def cancel(self):
         self._cancelled = True
-        job = self._job
-        if job:
-            job.terminate()
+        with self._lock:
+            if self._child:
+                self._child.terminate()
 
     def _check_cancelled(self):
         if self._cancelled:
@@ -225,8 +288,8 @@ class Engine:
     @contextlib.contextmanager
     def _session(self, name):
         self._cancelled = False
-        os.makedirs(LOG_DIR, exist_ok=True)
-        path = os.path.join(LOG_DIR, '{}-{:%Y-%m-%d_%H%M%S}.log'.format(name, datetime.datetime.now()))
+        os.makedirs(WORK_DIR, exist_ok=True)
+        path = os.path.join(paths.log_dir(), 'gog-{}-{:%Y-%m-%d_%H%M%S}.log'.format(name, datetime.datetime.now()))
         with open(path, 'w', encoding='utf-8') as self._logfile:
             try:
                 yield
@@ -241,24 +304,15 @@ class Engine:
         if FROZEN:
             cmd = [sys.executable, '--gogrepoc'] + args
         else:
-            cmd = [sys.executable, os.path.join(DATA_DIR, 'gog_sync.py'), '--gogrepoc'] + args
+            cmd = [sys.executable, os.path.join(SOURCE_ROOT, 'app.py'), '--gogrepoc'] + args
         env = dict(os.environ, PYTHONUNBUFFERED='1', PYTHONIOENCODING='utf-8')
         self.log('> gogrepoc ' + ' '.join(args))
-        job = _Job()
-        proc = subprocess.Popen(
-            cmd, cwd=DATA_DIR, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW | CREATE_SUSPENDED)
-        self._job = job
-        try:
-            job.start(proc)
-        except OSError:
-            job.terminate()
-            proc.wait()
-            job.close()
-            self._job = None
-            raise
-        if self._cancelled:  # cancel() ran before self._job was set
-            job.terminate()
+        child = _Child(cmd, WORK_DIR, env)
+        proc = child.proc
+        with self._lock:
+            self._child = child
+        if self._cancelled:  # cancel() ran before self._child was set
+            child.terminate()
         if stdin_text is not None:
             proc.stdin.write(stdin_text.encode('utf-8'))
             proc.stdin.flush()
@@ -292,8 +346,9 @@ class Engine:
                     proc.stdin.flush()
         finally:
             proc.wait()
-            self._job = None
-            job.close()
+            with self._lock:
+                self._child = None
+            child.close()
             if self._logfile:
                 self._logfile.flush()
         self._check_cancelled()
@@ -327,7 +382,7 @@ class Engine:
     # --- !orphaned handling -----------------------------------------------------------------------
 
     def _restore_orphans(self, settings):
-        """Moves everything in !orphaned back to where clean took it from: !orphaned\\<game> is either a
+        """Moves everything in !orphaned back to where clean took it from: !orphaned/<game> is either a
         whole game folder or holds single files of <game>."""
         save_dir, orphan_dir = settings['save_dir'], self._orphan_dir(settings)
         if not os.path.isdir(orphan_dir):
@@ -414,9 +469,8 @@ class Engine:
 
                 self.status('Comparing the library with the local folder...')
                 self.progress(None)
-                plan = Plan(downloads=self._planned_downloads(settings),
+                return Plan(downloads=self._planned_downloads(settings),
                             deletions=self._planned_deletions(settings))
-                return plan
             finally:
                 self._restore_orphans(settings)
                 if settings['sort']:
@@ -512,7 +566,7 @@ class Engine:
         return items
 
     def _planned_deletions(self, settings):
-        # "clean -dryrun" prints "orphaning dir  '<game>'" or "orphaning file '<game>\<file>'".
+        # "clean -dryrun" prints "orphaning dir  '<game>'" or "orphaning file '<game>/<file>'".
         save_dir = settings['save_dir']
         items = []
         for message in self._gogrepoc(['clean', save_dir, '-dryrun'], quiet=True):
