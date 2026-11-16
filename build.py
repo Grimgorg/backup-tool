@@ -32,7 +32,12 @@ def main():
     args = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--windowed', '--name', name,
             '--distpath', os.path.join(ROOT, 'dist'), '--workpath', build, '--specpath', build,
             '--paths', gogrepoc, '--hidden-import', 'gogrepoc', '--collect-data', 'sv_ttk',
-            '--exclude-module', 'PyQt5']
+            '--exclude-module', 'PyQt5',
+            # The window icon is read at runtime from vaultsync/assets (see make_icon.py).
+            '--add-data', '{}{}vaultsync/assets'.format(os.path.join(ROOT, 'vaultsync', 'assets', 'window.png'),
+                                                        os.pathsep),
+            '--icon', os.path.join(ROOT, 'vaultsync', 'assets',
+                                   'icon.icns' if sys.platform == 'darwin' else 'icon.ico')]
     if sys.platform == 'darwin':
         args += ['--onedir', '--osx-bundle-identifier', 'io.github.grimgorg.vaultsync']
     else:

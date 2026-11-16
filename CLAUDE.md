@@ -19,6 +19,7 @@ python -m venv .venv
 .venv/bin/python -m unittest tests.test_tts_engine.EngineTest.test_backup_and_restore   # one test
 .venv/bin/python build.py                                     # PyInstaller build for the current OS into dist/
 python version.py [--release]                                 # version a build of this checkout would get
+python make_icon.py                                           # redraw the icon files in vaultsync/assets (needs Pillow)
 ```
 
 - Run tests from the repo root with `-t .`: `tests/__init__.py` sets `VAULT_SYNC_HOME` to a temp folder before
