@@ -46,6 +46,11 @@ python version.py [--release]                                 # version a build 
   first and only deleted after all downloads succeed; on failure, cancel or a crash they are moved back
   (`Engine.recover` runs at the next start). `organize.py` flattens game folders before gogrepoc runs and sorts them
   into `Installer/` and `Extras/<category>/` afterwards, because gogrepoc only sees files directly in a game folder.
+- Self-update: `vaultsync/updater.py` (no UI) reads the latest GitHub release of `Grimgorg/backup-tool`, picks the
+  asset by the file names the Build workflow gives them (`VaultSync-<os>-<arch>-<version>`), and replaces the running
+  build by renaming it to `<name>.old` (works on all three OSes) and moving the new one in; `cleanup_previous()`
+  removes the `.old` at the next start. `vaultsync/updater_ui.py` has the dialogs; `App` starts the check. Only frozen
+  builds with a plain `x.y.z` version check, so keep asset names and the version format in sync with `build.yml`.
 - TTS: logic ported from the stand-alone `tts-backup` CLI; the zip format (with `manifest.json`) is shared with it, so
   keep it compatible. Assets are cached under TTS's own naming (URL with non-alphanumerics removed). `arkham.py` handles
   the Arkham Horror SCE mod's in-game downloads (saved as Saved Objects per mod version).

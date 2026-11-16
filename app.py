@@ -36,13 +36,14 @@ from tkinter import messagebox, ttk  # noqa: E402
 
 import sv_ttk  # noqa: E402
 
-from vaultsync import APP_NAME, __version__, paths  # noqa: E402
+from vaultsync import APP_NAME, __version__, paths, updater  # noqa: E402
 from vaultsync.common import load_json, save_json  # noqa: E402
 from vaultsync.gog.tab import GogTab  # noqa: E402
 from vaultsync.podcasts.tab import PodcastsTab  # noqa: E402
 from vaultsync.tts.tab import TtsTab  # noqa: E402
-from vaultsync.ui_common import heading_font, open_folder, set_dark_title_bar, set_dpi_awareness, \
-    system_dark_mode  # noqa: E402
+from vaultsync.ui_common import heading_font, open_folder, run_in_background, set_dark_title_bar, \
+    set_dpi_awareness, system_dark_mode  # noqa: E402
+from vaultsync.updater_ui import SKIP, UPDATE, InstallDialog, UpdateDialog  # noqa: E402
 
 APP_SETTINGS_FILE = os.path.join(paths.CONFIG_DIR, 'app.json')
 TABS = (GogTab, PodcastsTab, TtsTab)
@@ -79,6 +80,51 @@ class App:
         for tab in self.tabs:
             if type(tab).__name__ == selected:
                 self.notebook.select(tab)
+
+        updater.cleanup_previous()
+        if updater.can_self_update():
+            root.after(1500, self.check_for_updates)
+
+    # --- updates ----------------------------------------------------------------------------------
+
+    def check_for_updates(self):
+        """Looks for a newer release in the background and offers to install it."""
+        run_in_background(self.root, updater.check, self._on_update_found)
+
+    def _on_update_found(self, release, error):
+        if error:
+            print('Update check failed: {}'.format(error))  # offline or GitHub unreachable: try again next start
+            return
+        if not release or release.version == self.settings.get('skip_version') or self.closing:
+            return
+        answer = UpdateDialog(self.root, release).show()
+        if answer == SKIP:
+            self.settings['skip_version'] = release.version
+            self._save_settings()
+        elif answer == UPDATE:
+            busy = [tab for tab in self.tabs if tab.busy]
+            if busy and not messagebox.askyesno(
+                    APP_NAME, 'Still running: {}. Cancel it and update?\n\nFiles that were moved aside are restored '
+                              'first.'.format(', '.join(tab.title for tab in busy)), parent=self.root):
+                return
+            for tab in busy:
+                tab.cancel_task()
+            self._install_when_idle(release)
+
+    def _install_when_idle(self, release):
+        if any(tab.busy for tab in self.tabs):
+            self.root.after(300, lambda: self._install_when_idle(release))
+            return
+        dialog = InstallDialog(self.root, release)
+        target = dialog.show()
+        if dialog.error:
+            messagebox.showerror(APP_NAME, 'The update failed: {}\n\nThis version keeps working. You can also '
+                                           'download the new version from\n{}'.format(dialog.error, release.page),
+                                 parent=self.root)
+        elif target:
+            self._save_settings()
+            updater.restart(target)
+            self.root.destroy()
 
     def _save_settings(self):
         tab = self.notebook.nametowidget(self.notebook.select())

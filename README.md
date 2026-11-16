@@ -88,6 +88,14 @@ run. The version is shown in the app's window header.
   or `xattr -dr com.apple.quarantine "Vault Sync.app"`.
 - **Linux (x64):** `vault-sync`, a single executable (`chmod +x vault-sync`).
 
+## Updates
+
+When a release build starts, it checks GitHub for a newer release in the background. If there is one, it shows
+what's new and asks whether to update: **Update now** downloads the build for this OS, puts it in place of the
+current one, and restarts the app (running tasks are cancelled first, after asking). **Later** asks again at the
+next start; **Skip this version** waits for the next one. If anything goes wrong, the current version keeps working.
+Test builds (versions with `-dev`) and running from source never update themselves.
+
 ## Development
 
 ```sh
@@ -119,3 +127,11 @@ minor or major version, change `VERSION` (e.g. to `1.1`); the next release is th
 local builds get test versions such as `1.0.3-dev+abc1234`, and running from source shows `1.0-dev`.
 `python version.py` prints the version a build of the current checkout would get. Pushes to `main` in quick
 succession are built one after the other; if several are waiting, only the newest is released.
+
+## License
+
+Vault Sync's own code is released under the [MIT License](LICENSE).
+
+The builds also contain [gogrepoc](https://github.com/Kalanyr/gogrepoc) (included as a git submodule), which is
+licensed under the GNU GPL v3 or later, and the other packages listed in `requirements.txt` under their own licenses.
+Because gogrepoc is bundled, the ready-made builds as a whole are distributed under the terms of the GPL v3 or later.
