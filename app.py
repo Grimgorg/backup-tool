@@ -1,4 +1,4 @@
-# Vault Sync: one window with a tab per sub-app (GOG library, podcasts). Each tab runs its own tasks, so a
+# Vault Sync: one window with a tab per sub-app (GOG library, podcasts, Tabletop Simulator). Each tab runs its own tasks, so a
 # GOG sync and a podcast download can run at the same time.
 # The executable also runs gogrepoc itself when started with --gogrepoc (see vaultsync.gog.engine).
 import io
@@ -33,11 +33,12 @@ from vaultsync import APP_NAME, __version__, paths  # noqa: E402
 from vaultsync.common import load_json, save_json  # noqa: E402
 from vaultsync.gog.tab import GogTab  # noqa: E402
 from vaultsync.podcasts.tab import PodcastsTab  # noqa: E402
+from vaultsync.tts.tab import TtsTab  # noqa: E402
 from vaultsync.ui_common import heading_font, open_folder, set_dark_title_bar, set_dpi_awareness, \
     system_dark_mode  # noqa: E402
 
 APP_SETTINGS_FILE = os.path.join(paths.CONFIG_DIR, 'app.json')
-TABS = (GogTab, PodcastsTab)
+TABS = (GogTab, PodcastsTab, TtsTab)
 
 
 class App:

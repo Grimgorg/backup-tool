@@ -1,5 +1,6 @@
 """Vault Sync: keeps local copies of online collections up to date. Each kind of source is its own sub-app
-with its own tab: the GOG library (vaultsync.gog) and podcasts (vaultsync.podcasts)."""
+with its own tab: the GOG library (vaultsync.gog), podcasts (vaultsync.podcasts) and Tabletop Simulator mod
+backups (vaultsync.tts)."""
 import os
 
 APP_NAME = 'Vault Sync'

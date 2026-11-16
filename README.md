@@ -1,7 +1,8 @@
 # Vault Sync
 
 Desktop app for Windows, macOS and Linux that keeps local copies of online collections up to date. Each kind
-of source is its own sub-app with its own tab, and they can run at the same time.
+of source is its own sub-app with its own tab, and they can run at the same time: the GOG library, podcasts and
+Tabletop Simulator mods.
 
 ## GOG Library tab
 
@@ -34,6 +35,30 @@ file next to each episode.
   rule change, episodes already archived are moved, not downloaded again.
 - **Check for new episodes** reads the feeds and lists what is new per folder; **Download new episodes** fetches
   it. Failed downloads are retried at the next run.
+
+## Tabletop Simulator tab
+
+Backs up Tabletop Simulator mods together with every image, 3D model, asset bundle, PDF and sound they use, so a
+mod still works when its original links are gone.
+
+- The **Mods** list shows every mod in the TTS `Mods/Workshop` folder, including the folders you made in TTS.
+  Double-click a mod to leave it out of backups (or include it again).
+- **Check** counts each mod's assets and how many are already in TTS's cache. Nothing is downloaded.
+- **Back up** downloads every missing asset into TTS's own cache folders (with the file names TTS uses) and writes
+  one zip per mod into the backup folder; mods in a TTS folder go into the same subfolder. Assets that can't be
+  downloaded any more are listed in the log and in the zip's `manifest.json`.
+- **Restore...** unpacks every backup zip of a folder into the TTS folders and adds the mods to TTS's mod list.
+  Files that already exist are kept. This works on any computer, also without internet.
+- Links that appear only inside a mod's scripts (e.g. alternative table textures) are backed up too.
+- **Downloadable content:** the Arkham Horror LCG (SCE) mod downloads campaigns, scenarios and player cards from
+  GitHub in-game. With this option on, those packs are saved as TTS Saved Objects
+  (`Saves/Saved Objects/Arkham SCE Downloads/<mod version>/...`) and packed with their assets into a second zip,
+  `<mod> - Downloadable content.zip`. After a restore, place them in TTS from **Objects → Saved Objects** (the
+  mod's own download window always needs internet). Language packs: German by default, e.g. `German,French`,
+  `all` or `none`. English + German is about 22,000 assets (roughly 30–45 GB), and the zip needs the same again.
+  If the packs can't be fetched, the backup continues with packs from an earlier run and shows a warning.
+
+The zips are compatible with the stand-alone `tts-backup` command line tool.
 
 ## User data
 
@@ -79,4 +104,7 @@ On Linux, Tk must be installed (e.g. `sudo apt install python3-tk`).
 - `vaultsync/paths.py` – user data folders; `ui_common.py` – shared UI; `common.py` – shared helpers.
 - `vaultsync/gog/` – GOG sub-app: `engine.py` (sync logic), `organize.py` (sorting), `tab.py` (UI).
 - `vaultsync/podcasts/` – podcasts sub-app: `engine.py` (archive logic), `tab.py` (UI).
+- `vaultsync/tts/` – Tabletop Simulator sub-app: `engine.py` (check/backup/restore), `tab.py` (UI); `mods.py`,
+  `scanner.py`, `naming.py`, `downloader.py`, `package.py` (finding, downloading and packing assets) and
+  `arkham.py` (Arkham SCE downloadable content).
 - `.github/workflows/build.yml` – tests and builds for all three OSes; pushing a tag `v*` publishes a release.
