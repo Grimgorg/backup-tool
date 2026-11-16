@@ -68,6 +68,19 @@ def open_folder(path):
         subprocess.Popen(['xdg-open', path])
 
 
+# Next to this module, also in the PyInstaller build (build.py adds it as data under vaultsync/assets).
+WINDOW_ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'window.png')
+
+
+def set_window_icon(root):
+    """Uses the app icon for root and every window opened from it (title bar, taskbar, Dock from source)."""
+    try:
+        root.app_icon = tk.PhotoImage(file=WINDOW_ICON)  # kept on root so Tk doesn't lose the image
+        root.iconphoto(True, root.app_icon)
+    except tk.TclError:
+        pass  # without the image file the default icon stays
+
+
 def heading_font(size=20):
     f = tkfont.nametofont('TkDefaultFont').copy()
     f.configure(size=size, weight='bold')

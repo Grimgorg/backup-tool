@@ -42,7 +42,7 @@ from vaultsync.gog.tab import GogTab  # noqa: E402
 from vaultsync.podcasts.tab import PodcastsTab  # noqa: E402
 from vaultsync.tts.tab import TtsTab  # noqa: E402
 from vaultsync.ui_common import heading_font, open_folder, run_in_background, set_dark_title_bar, \
-    set_dpi_awareness, system_dark_mode  # noqa: E402
+    set_dpi_awareness, set_window_icon, system_dark_mode  # noqa: E402
 from vaultsync.updater_ui import SKIP, UPDATE, InstallDialog, UpdateDialog  # noqa: E402
 
 APP_SETTINGS_FILE = os.path.join(paths.CONFIG_DIR, 'app.json')
@@ -158,6 +158,7 @@ class App:
 def main():
     set_dpi_awareness()
     root = tk.Tk()
+    set_window_icon(root)
     dark = system_dark_mode()
     sv_ttk.set_theme('dark' if dark else 'light')
     App(root)
