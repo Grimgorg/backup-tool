@@ -1,6 +1,7 @@
 """Small helpers shared by the sub-app engines (no UI imports, so child processes can use them too)."""
 import json
 import os
+import ssl
 
 
 class Cancelled(Exception):
@@ -9,6 +10,27 @@ class Cancelled(Exception):
 
 class SyncError(Exception):
     """A task failed in a way the user should be told about."""
+
+
+def use_bundled_certificates():
+    """Lets HTTPS verify servers when Python can't find the system's certificates, as in the macOS build.
+
+    The bundled OpenSSL looks for certificates where Python was installed on the build machine, which doesn't exist
+    on the user's computer, so every urllib HTTPS request would fail. Then SSL_CERT_FILE is pointed at certifi's
+    certificate bundle, which the builds include. Where the system's certificates are found (Linux, and Windows,
+    which also reads its own certificate store), nothing changes. Call it before the first HTTPS request.
+    """
+    if os.environ.get('SSL_CERT_FILE'):
+        return
+    paths = ssl.get_default_verify_paths()
+    if (paths.cafile and os.path.isfile(paths.cafile)) or (paths.capath and os.path.isdir(paths.capath)
+                                                         and os.listdir(paths.capath)):
+        return
+    try:
+        import certifi
+    except ImportError:
+        return
+    os.environ['SSL_CERT_FILE'] = certifi.where()
 
 
 def format_size(b):

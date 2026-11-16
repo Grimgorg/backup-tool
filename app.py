@@ -1,9 +1,14 @@
 # Vault Sync: one window with a tab per sub-app (GOG library, podcasts, Tabletop Simulator). Each tab runs its own tasks, so a
 # GOG sync and a podcast download can run at the same time.
-# The executable also runs gogrepoc itself when started with --gogrepoc (see vaultsync.gog.engine), and prints its
-# version when started with --version.
+# The executable also runs gogrepoc itself when started with --gogrepoc (see vaultsync.gog.engine), prints its
+# version when started with --version, and checks that it can make HTTPS connections with --check-https.
 import io
 import sys
+
+from vaultsync.common import use_bundled_certificates
+
+# Before anything connects: the builds can't find the system's certificates on every OS.
+use_bundled_certificates()
 
 
 def fix_child_stdio():
@@ -24,6 +29,19 @@ if len(sys.argv) > 1 and sys.argv[1] == '--version':
     print(_version)
     sys.exit(0)
 
+if len(sys.argv) > 1 and sys.argv[1] == '--check-https':
+    # Used by the Build workflow: the build must reach GitHub over verified HTTPS (update check, downloads).
+    fix_child_stdio()
+    import urllib.request
+    try:
+        urllib.request.urlopen('https://github.com', timeout=30).close()
+    except OSError as e:
+        print('HTTPS failed: {}'.format(e))
+        sys.exit(1)
+    import os
+    print('HTTPS ok (certificates: {})'.format(os.environ.get('SSL_CERT_FILE') or 'system'))
+    sys.exit(0)
+
 if len(sys.argv) > 1 and sys.argv[1] == '--gogrepoc':
     fix_child_stdio()
     from vaultsync.gog import engine as _gog_engine
@@ -41,9 +59,9 @@ from vaultsync.common import load_json, save_json  # noqa: E402
 from vaultsync.gog.tab import GogTab  # noqa: E402
 from vaultsync.podcasts.tab import PodcastsTab  # noqa: E402
 from vaultsync.tts.tab import TtsTab  # noqa: E402
-from vaultsync.ui_common import heading_font, open_folder, run_in_background, set_dark_title_bar, \
-    set_dpi_awareness, set_window_icon, system_dark_mode  # noqa: E402
-from vaultsync.updater_ui import SKIP, UPDATE, InstallDialog, UpdateDialog  # noqa: E402
+from vaultsync.ui_common import heading_font, open_folder, set_dark_title_bar, set_dpi_awareness, set_window_icon, \
+    system_dark_mode  # noqa: E402
+from vaultsync.updater_ui import UpdateBar  # noqa: E402
 
 APP_SETTINGS_FILE = os.path.join(paths.CONFIG_DIR, 'app.json')
 TABS = (GogTab, PodcastsTab, TtsTab)
@@ -68,6 +86,8 @@ class App:
         ttk.Button(header, text='Open data folder', command=lambda: open_folder(paths.data_dir())
                    ).pack(side='right')
         ttk.Label(header, text='v' + __version__, foreground='gray').pack(side='right', padx=(0, 12))
+        update_status = ttk.Label(header, text='', foreground='gray')
+        update_status.pack(side='right', padx=(0, 12))
 
         self.notebook = ttk.Notebook(outer)
         self.notebook.pack(fill='both', expand=True)
@@ -81,50 +101,20 @@ class App:
             if type(tab).__name__ == selected:
                 self.notebook.select(tab)
 
+        # Shown between the header and the tabs when a newer release is found (see vaultsync.updater_ui).
+        self.update_bar = UpdateBar(
+            outer, update_status, busy_tabs=lambda: [tab.title for tab in self.tabs if tab.busy],
+            cancel_tabs=lambda: [tab.cancel_task() for tab in self.tabs if tab.busy], restart=self._restart,
+            pack_options=dict(fill='x', pady=(0, 10), before=self.notebook))
         updater.cleanup_previous()
         if updater.can_self_update():
-            root.after(1500, self.check_for_updates)
+            root.after(1500, self.update_bar.start_check)
 
-    # --- updates ----------------------------------------------------------------------------------
-
-    def check_for_updates(self):
-        """Looks for a newer release in the background and offers to install it."""
-        run_in_background(self.root, updater.check, self._on_update_found)
-
-    def _on_update_found(self, release, error):
-        if error:
-            print('Update check failed: {}'.format(error))  # offline or GitHub unreachable: try again next start
-            return
-        if not release or release.version == self.settings.get('skip_version') or self.closing:
-            return
-        answer = UpdateDialog(self.root, release).show()
-        if answer == SKIP:
-            self.settings['skip_version'] = release.version
-            self._save_settings()
-        elif answer == UPDATE:
-            busy = [tab for tab in self.tabs if tab.busy]
-            if busy and not messagebox.askyesno(
-                    APP_NAME, 'Still running: {}. Cancel it and update?\n\nFiles that were moved aside are restored '
-                              'first.'.format(', '.join(tab.title for tab in busy)), parent=self.root):
-                return
-            for tab in busy:
-                tab.cancel_task()
-            self._install_when_idle(release)
-
-    def _install_when_idle(self, release):
-        if any(tab.busy for tab in self.tabs):
-            self.root.after(300, lambda: self._install_when_idle(release))
-            return
-        dialog = InstallDialog(self.root, release)
-        target = dialog.show()
-        if dialog.error:
-            messagebox.showerror(APP_NAME, 'The update failed: {}\n\nThis version keeps working. You can also '
-                                           'download the new version from\n{}'.format(dialog.error, release.page),
-                                 parent=self.root)
-        elif target:
-            self._save_settings()
-            updater.restart(target)
-            self.root.destroy()
+    def _restart(self, target):
+        """Starts the build installed by the update bar and closes this one."""
+        self._save_settings()
+        updater.restart(target)
+        self.root.destroy()
 
     def _save_settings(self):
         tab = self.notebook.nametowidget(self.notebook.select())

@@ -102,6 +102,9 @@ jobs:
           # The build carries the version of this run.
           "$app" --version | tee version.txt
           test "$(tr -d '\r' < version.txt)" = "$VAULT_SYNC_VERSION"
+          # The build verifies HTTPS certificates (update check, downloads); see use_bundled_certificates().
+          "$app" --check-https | tee https.txt
+          grep -q "HTTPS ok" https.txt
           # The bundled gogrepoc and its dependencies load.
           "$app" --gogrepoc -h | tee gogrepoc-help.txt
           grep -q "usage" gogrepoc-help.txt

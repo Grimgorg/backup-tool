@@ -33,7 +33,10 @@ python make_icon.py                                           # redraw the icon 
 - `app.py` builds the window and one tab per class in `TABS`, remembers the selected tab and window size, and on close
   cancels busy tabs and waits for them (`App.task_finished`). It also has two non-UI modes, handled before Tk is
   imported: `--gogrepoc ...` runs the bundled gogrepoc (the GOG engine starts the app itself as a child process with
-  this, so the frozen build needs no separate Python), and `--version` prints the version.
+  this, so the frozen build needs no separate Python), `--version` prints the version and `--check-https` tests a
+  verified HTTPS connection (both used by the CI smoke test). `app.py` first calls `use_bundled_certificates()`:
+  the macOS build's OpenSSL can't find system certificates, so urllib HTTPS (updates, feeds, TTS downloads) would
+  fail without certifi's bundle.
 - Every sub-app is split into `engine.py` (no UI imports; runs in a worker thread) and `tab.py` (a `TaskTab` from
   `vaultsync/ui_common.py`). The engine takes `log`, `status`, `progress` callbacks (and `ask` for GOG), checks a
   cancel event, raises `Cancelled` / `SyncError` (`vaultsync/common.py`), and writes a log file per run into
@@ -50,7 +53,8 @@ python make_icon.py                                           # redraw the icon 
 - Self-update: `vaultsync/updater.py` (no UI) reads the latest GitHub release of `Grimgorg/backup-tool`, picks the
   asset by the file names the Build workflow gives them (`VaultSync-<os>-<arch>-<version>`), and replaces the running
   build by renaming it to `<name>.old` (works on all three OSes) and moving the new one in; `cleanup_previous()`
-  removes the `.old` at the next start. `vaultsync/updater_ui.py` has the dialogs; `App` starts the check. Only frozen
+  removes the `.old` at the next start. `vaultsync/updater_ui.py` has the update bar shown inside the main window (no pop-ups; like the
+  draft-simulator app); `App` starts the check. Only frozen
   builds with a plain `x.y.z` version check, so keep asset names and the version format in sync with `build.yml`.
 - TTS: logic ported from the stand-alone `tts-backup` CLI; the zip format (with `manifest.json`) is shared with it, so
   keep it compatible. Assets are cached under TTS's own naming (URL with non-alphanumerics removed). `arkham.py` handles
