@@ -1,6 +1,7 @@
 # Tests and builds Vault Sync for Windows, macOS and Linux. Every push to main is published as a GitHub release
 # with the next version number (1.0.0, 1.0.1, ...; see version.py). Pull requests and manual runs build test
-# versions (e.g. 1.0.1-dev+abc1234) that are uploaded as workflow artifacts only.
+# versions (e.g. 1.0.1-dev+abc1234) that are uploaded as workflow artifacts only; a manual run on main with
+# "release" ticked publishes a release like a push does (for when a push did not start the workflow).
 name: Build
 
 on:
@@ -8,6 +9,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: Publish this run as a release (only on main)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,7 +43,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
+          if [ "${{ github.ref }}" = refs/heads/main ] && \
+             { [ "${{ github.event_name }}" = push ] || [ "${{ inputs.release }}" = true ]; }; then
             release=true; version=$(python version.py --release)
           else
             release=false; version=$(python version.py)

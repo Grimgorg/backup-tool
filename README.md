@@ -126,7 +126,8 @@ On Linux, Tk must be installed (e.g. `sudo apt install python3-tk`).
 minor or major version, change `VERSION` (e.g. to `1.1`); the next release is then `1.1.0`. Pull requests and
 local builds get test versions such as `1.0.3-dev+abc1234`, and running from source shows `1.0-dev`.
 `python version.py` prints the version a build of the current checkout would get. Pushes to `main` in quick
-succession are built one after the other; if several are waiting, only the newest is released.
+succession are built one after the other; if several are waiting, only the newest is released. If a push did not
+start the workflow, run it by hand on `main` (Actions → Build → Run workflow) with **release** ticked.
 
 ## License
 
