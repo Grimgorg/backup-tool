@@ -90,10 +90,12 @@ run. The version is shown in the app's window header.
 
 ## Updates
 
-When a release build starts, it checks GitHub for a newer release in the background. If there is one, it shows
-what's new and asks whether to update: **Update now** downloads the build for this OS, puts it in place of the
-current one, and restarts the app (running tasks are cancelled first, after asking). **Later** asks again at the
-next start; **Skip this version** waits for the next one. If anything goes wrong, the current version keeps working.
+When a release build starts, it checks GitHub for a newer release in the background; the header shows the result
+next to the version ("Up to date", "Update available" or "Couldn't check for updates"). A newer release appears as
+a bar above the tabs: **Update now** downloads the build for this OS (with progress, and **Cancel**), puts it in
+place of the current one and restarts the app; running tasks are cancelled first, after asking. **What's new**
+opens the release page, **Later** hides the bar until the next start. If anything goes wrong, the bar says so and
+the current version keeps working.
 Test builds (versions with `-dev`) and running from source never update themselves.
 
 ## Development

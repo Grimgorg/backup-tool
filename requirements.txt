@@ -1,5 +1,7 @@
 # Runtime dependencies of Vault Sync. To build, also install pyinstaller (see README).
 sv-ttk
+# Certificates for HTTPS in the builds (see vaultsync.common.use_bundled_certificates)
+certifi
 # gogrepoc (GOG tab)
 requests
 html5lib
