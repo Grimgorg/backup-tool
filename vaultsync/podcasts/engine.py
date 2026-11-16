@@ -5,8 +5,9 @@ Layout of the archive folder:   <archive folder>/<podcast name>/<NN>_<folder>/<Y
 Which folder an episode goes to is decided by the podcast's folder rules (first matching rule wins, patterns are
 regular expressions matched against the episode title, case-insensitive). Episodes matching no rule get a
 folder named after the start of their title. A folder's number follows the order in which its first episode
-appeared and stays fixed after that (kept in the app data folder, state.json per podcast). If that state is
-missing, existing numbered folders in the archive are picked up again.
+appeared and stays fixed once the folder exists (kept in the app data folder, state.json per podcast); numbers
+of folders that do not exist (never downloaded into, or emptied) are given out again, so they leave no gaps.
+If that state is missing, existing numbered folders in the archive are picked up again.
 
 The watch list (podcasts.json) is kept in the app's settings folder; see vaultsync.paths.
 """
@@ -354,6 +355,10 @@ def assign(podcast, state, episodes, base):
     """Sets folder and rel of each episode, numbering new folders. Returns (unmatched episodes, new folders)."""
     rules = compile_rules(podcast)
     on_disk = existing_folders(base)
+    # Only folders that exist keep their number. Numbers saved for folders that were never created (a download
+    # that was cancelled, rules added after it) or that are gone would otherwise leave gaps in the numbering.
+    state['sessions'] = {f: n for f, n in state['sessions'].items()
+                         if os.path.isdir(os.path.join(base, '%02d_%s' % (n, safe_name(f))))}
     unmatched, new_folders = [], []
     for ep in episodes:
         ep.folder, matched = classify(ep.title, rules)
@@ -519,7 +524,6 @@ class Engine:
             data = r.read()
         episodes = parse_feed(data, name)
         state = load_state(name)
-        known_folders = set(state['sessions'])
         unmatched, new_folders = assign(podcast, state, episodes, base)
         check = PodcastCheck(podcast, state=state, feed_data=data, episodes=episodes, unmatched=unmatched,
                              new_folders=new_folders)
@@ -534,8 +538,8 @@ class Engine:
                 check.new.append(ep)
         # Remember what is in the archive, but don't reserve numbers for folders that don't exist yet: they
         # are only fixed when something is downloaded into them (apply saves the full state).
-        saved = dict(state, sessions={f: n for f, n in state['sessions'].items() if f in known_folders or
-                                      os.path.isdir(os.path.join(base, folder_name(state, f)))})
+        saved = dict(state, sessions={f: n for f, n in state['sessions'].items()
+                                      if os.path.isdir(os.path.join(base, folder_name(state, f)))})
         save_state(name, saved)
 
         self.log('{} episodes in the feed, {} in the archive, {} new.'.format(

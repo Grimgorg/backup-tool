@@ -147,6 +147,23 @@ class ArchiveTest(unittest.TestCase):
         with open(os.path.join(pc.state_dir('Test Cast'), 'state.json'), encoding='utf-8') as f:
             self.assertEqual(json.load(f)['sessions'], {'Alpha': 7, 'Beta': 2})
 
+    def folders_of_check(self):
+        return sorted({os.path.dirname(e.rel) for e in self.engine.check(self.cfg).checks[0].episodes})
+
+    def test_numbers_of_missing_folders_leave_no_gaps(self):
+        # Numbers saved for folders that were never created (e.g. a check before the rules were added, or a
+        # cancelled download) are given out again instead of pushing new folders to the end.
+        pc.save_state('Test Cast', {'sessions': {'Alpha - Teil 1': 1, 'Old Guess': 2, 'Alpha': 5, 'Beta': 9},
+                                    'episodes': {}})
+        self.assertEqual(self.folders_of_check(), ['01_Alpha', '02_Beta', '03_Video Special'])
+
+        # A folder that exists keeps its number; new folders follow the highest existing one.
+        pc.save_state('Test Cast', {'sessions': {'Old Guess': 1, 'Alpha': 5, 'Beta': 9}, 'episodes': {}})
+        os.makedirs(os.path.join(self.archive, 'Test Cast', '05_Alpha'))
+        self.assertEqual(self.folders_of_check(), ['05_Alpha', '06_Beta', '07_Video Special'])
+        with open(os.path.join(pc.state_dir('Test Cast'), 'state.json'), encoding='utf-8') as f:
+            self.assertEqual(json.load(f)['sessions'], {'Alpha': 5})
+
     def test_cancel_removes_partial_file(self):
         plan = self.engine.check(self.cfg)
         self.engine._download = functools.partial(self._cancel_then_download, self.engine._download)
