@@ -1,6 +1,7 @@
 # Vault Sync: one window with a tab per sub-app (GOG library, podcasts, Tabletop Simulator). Each tab runs its own tasks, so a
 # GOG sync and a podcast download can run at the same time.
-# The executable also runs gogrepoc itself when started with --gogrepoc (see vaultsync.gog.engine).
+# The executable also runs gogrepoc itself when started with --gogrepoc (see vaultsync.gog.engine), and prints its
+# version when started with --version.
 import io
 import sys
 
@@ -16,6 +17,12 @@ def fix_child_stdio():
     sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
     sys.stdin.reconfigure(encoding='utf-8')
 
+
+if len(sys.argv) > 1 and sys.argv[1] == '--version':
+    fix_child_stdio()
+    from vaultsync import __version__ as _version
+    print(_version)
+    sys.exit(0)
 
 if len(sys.argv) > 1 and sys.argv[1] == '--gogrepoc':
     fix_child_stdio()

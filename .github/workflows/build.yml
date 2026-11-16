@@ -1,19 +1,53 @@
-# Tests and builds Vault Sync for Windows, macOS and Linux. Every run uploads the builds as workflow artifacts;
-# pushing a tag like v1.0.0 also publishes them as a GitHub release.
+# Tests and builds Vault Sync for Windows, macOS and Linux. Every push to main is published as a GitHub release
+# with the next version number (1.0.0, 1.0.1, ...; see version.py). Pull requests and manual runs build test
+# versions (e.g. 1.0.1-dev+abc1234) that are uploaded as workflow artifacts only.
 name: Build
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Runs on main wait for each other instead of running side by side, so each release sees the tag of the one
+# before it and gets the next number. Older runs of a pull request are cancelled by newer pushes.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # all tags, to count the releases
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Work out the version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
+            release=true; version=$(python version.py --release)
+          else
+            release=false; version=$(python version.py)
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Vault Sync $version (release: $release)" >> "$GITHUB_STEP_SUMMARY"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +60,8 @@ jobs:
           - os: ubuntu-22.04
             artifact: VaultSync-linux-x64
     runs-on: ${{ matrix.os }}
+    env:
+      VAULT_SYNC_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,6 +92,9 @@ jobs:
             macOS)   app="dist/Vault Sync.app/Contents/MacOS/Vault Sync" ;;
             Linux)   app="dist/vault-sync" ;;
           esac
+          # The build carries the version of this run.
+          "$app" --version | tee version.txt
+          test "$(tr -d '\r' < version.txt)" = "$VAULT_SYNC_VERSION"
           # The bundled gogrepoc and its dependencies load.
           "$app" --gogrepoc -h | tee gogrepoc-help.txt
           grep -q "usage" gogrepoc-help.txt
@@ -70,10 +109,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
+          name="${{ matrix.artifact }}-$VAULT_SYNC_VERSION"
+          name="${name//+/_}"  # "+" is awkward in download URLs
           case "$RUNNER_OS" in
-            Windows) 7z a "out/${{ matrix.artifact }}.zip" "./dist/Vault Sync.exe" ;;
-            macOS)   ditto -c -k --keepParent "dist/Vault Sync.app" "out/${{ matrix.artifact }}.zip" ;;
-            Linux)   tar -czf "out/${{ matrix.artifact }}.tar.gz" -C dist vault-sync ;;
+            Windows) 7z a "out/$name.zip" "./dist/Vault Sync.exe" ;;
+            macOS)   ditto -c -k --keepParent "dist/Vault Sync.app" "out/$name.zip" ;;
+            Linux)   tar -czf "out/$name.tar.gz" -C dist vault-sync ;;
           esac
 
       - uses: actions/upload-artifact@v4
@@ -83,8 +124,8 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    if: needs.version.outputs.release == 'true'
+    needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -93,7 +134,11 @@ jobs:
         with:
           path: out
           merge-multiple: true
+      # Creates the tag v<version> on the commit that was built, and the release with the three builds.
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Vault Sync ${{ needs.version.outputs.version }}
           files: out/*
           generate_release_notes: true

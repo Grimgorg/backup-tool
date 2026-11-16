@@ -4,6 +4,9 @@
   macOS     dist/Vault Sync.app    (app bundle)
   Linux     dist/vault-sync        (single file)
 
+The version shown in the app comes from version.py (a test version such as 1.0.3-dev+abc1234), or from the
+VAULT_SYNC_VERSION environment variable, which the Build workflow sets.
+
 Needs: python -m pip install -r requirements.txt pyinstaller, and the gogrepoc submodule
 (git submodule update --init).
 """
@@ -14,7 +17,10 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
+import version  # noqa: E402
 from vaultsync import APP_ID, APP_NAME  # noqa: E402
+
+VERSION_MODULE = os.path.join(ROOT, 'vaultsync', '_version.py')
 
 
 def main():
@@ -32,7 +38,15 @@ def main():
     else:
         args += ['--onefile']
     args.append(os.path.join(ROOT, 'app.py'))
-    subprocess.check_call(args)
+    app_version = os.environ.get('VAULT_SYNC_VERSION') or version.compute()
+    print('Building {} {}'.format(APP_NAME, app_version))
+    # The module only exists during the build, so running from source keeps showing the -dev version.
+    with open(VERSION_MODULE, 'w', encoding='utf-8') as f:
+        f.write('# Written by build.py.\n__version__ = {!r}\n'.format(app_version))
+    try:
+        subprocess.check_call(args)
+    finally:
+        os.remove(VERSION_MODULE)
 
 
 if __name__ == '__main__':

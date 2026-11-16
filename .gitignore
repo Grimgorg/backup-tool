@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 build/
 dist/
+vaultsync/_version.py
 /GoG Sync.exe
 
 # Local state written by gogrepoc / the sync (login token is a secret)

@@ -79,8 +79,9 @@ copied over. The old files are not changed.
 
 ## Download
 
-Builds for each OS are attached to the [releases](../../releases), and every run of the
-[Build workflow](../../actions/workflows/build.yml) has them as artifacts.
+Every change on `main` is built and published automatically as a new [release](../../releases) with builds for
+each OS. Pull requests get test builds as artifacts of their [Build workflow](../../actions/workflows/build.yml)
+run. The version is shown in the app's window header.
 
 - **Windows:** `Vault Sync.exe`.
 - **macOS (Apple Silicon):** `Vault Sync.app`. It is not signed, so the first start needs right-click → Open,
@@ -107,4 +108,14 @@ On Linux, Tk must be installed (e.g. `sudo apt install python3-tk`).
 - `vaultsync/tts/` – Tabletop Simulator sub-app: `engine.py` (check/backup/restore), `tab.py` (UI); `mods.py`,
   `scanner.py`, `naming.py`, `downloader.py`, `package.py` (finding, downloading and packing assets) and
   `arkham.py` (Arkham SCE downloadable content).
-- `.github/workflows/build.yml` – tests and builds for all three OSes; pushing a tag `v*` publishes a release.
+- `.github/workflows/build.yml` – tests and builds for all three OSes; every push to `main` publishes a release.
+- `VERSION`, `version.py` – versioning, see below.
+
+### Versions
+
+`VERSION` holds the major.minor version (e.g. `1.0`). Every push to `main` is released as the next patch version
+(`1.0.0`, `1.0.1`, ...), counted from the `v*` tags of earlier releases; the workflow creates the tag. For a new
+minor or major version, change `VERSION` (e.g. to `1.1`); the next release is then `1.1.0`. Pull requests and
+local builds get test versions such as `1.0.3-dev+abc1234`, and running from source shows `1.0-dev`.
+`python version.py` prints the version a build of the current checkout would get. Pushes to `main` in quick
+succession are built one after the other; if several are waiting, only the newest is released.
