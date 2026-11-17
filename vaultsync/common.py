@@ -2,6 +2,8 @@
 import json
 import os
 import ssl
+import subprocess
+import sys
 
 
 class Cancelled(Exception):
@@ -40,6 +42,22 @@ def format_size(b):
         if b >= factor:
             return '%.2f %s' % (b / factor, unit)
     return '%d B' % b
+
+
+def open_folder(path):
+    """Opens path in the system's file manager. Returns False if it doesn't exist or can't be opened (e.g. on a
+    server without a desktop)."""
+    if not path or not os.path.isdir(path):
+        return False
+    try:
+        if sys.platform == 'win32':
+            os.startfile(path)
+        else:
+            subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', path],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except OSError:
+        return False
 
 
 def write_atomic(path, data):

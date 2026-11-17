@@ -5,12 +5,6 @@ __pycache__/
 build/
 dist/
 vaultsync/_version.py
-/GoG Sync.exe
 
-# Local state written by gogrepoc / the sync (login token is a secret)
-gog-token.dat
-gog-manifest.dat*
-gog-resume-manifest.dat*
-gogrepo.log
-logs/
-settings.json
+# User data when running from source (GOG login token is a secret); see vaultsync/paths.py
+/vault-sync-data/

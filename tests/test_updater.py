@@ -34,16 +34,21 @@ class VersionTest(unittest.TestCase):
             self.assertIsNone(updater.parse_version(text))
 
     def test_asset_prefix_per_os(self):
-        self.assertEqual(updater.asset_prefix('win32', 'AMD64'), 'VaultSync-windows-x64-')
-        self.assertEqual(updater.asset_prefix('darwin', 'arm64'), 'VaultSync-macos-arm64-')
-        self.assertEqual(updater.asset_prefix('linux', 'x86_64'), 'VaultSync-linux-x64-')
+        self.assertEqual(updater.asset_prefix('win32', 'AMD64'), 'vault-sync-windows-x64-')
+        self.assertEqual(updater.asset_prefix('darwin', 'arm64'), 'vault-sync-macos-arm64-')
+        self.assertEqual(updater.asset_prefix('linux', 'x86_64'), 'vault-sync-linux-x64-')
         self.assertIsNone(updater.asset_prefix('darwin', 'x86_64'))  # no Intel Mac build
 
+    def test_window_app_releases_are_not_offered(self):
+        # Releases before 2.0 were window apps named VaultSync-...; the console build never installs those.
+        answer = github_answer('v2.0.1', ['VaultSync-linux-x64-2.0.1.tar.gz'])
+        self.assertIsNone(updater.pick_release(answer, '2.0.0', updater.asset_prefix('linux', 'x86_64')))
+
     def test_pick_release_only_newer_with_a_build_for_this_os(self):
-        names = ['VaultSync-linux-x64-1.0.3.tar.gz', 'VaultSync-windows-x64-1.0.3.zip']
-        prefix = 'VaultSync-linux-x64-'
+        names = ['vault-sync-linux-x64-1.0.3.tar.gz', 'vault-sync-windows-x64-1.0.3.zip']
+        prefix = 'vault-sync-linux-x64-'
         release = updater.pick_release(github_answer('v1.0.3', names), '1.0.2', prefix)
-        self.assertEqual((release.version, release.asset_name), ('1.0.3', 'VaultSync-linux-x64-1.0.3.tar.gz'))
+        self.assertEqual((release.version, release.asset_name), ('1.0.3', 'vault-sync-linux-x64-1.0.3.tar.gz'))
         self.assertEqual(updater.pick_release(github_answer('v1.1.0', names[1:]), '1.0.2', prefix), None)
         for tag, current in (('v1.0.3', '1.0.3'), ('v1.0.3', '1.0.10'), ('v1.0.3', '1.0.4-dev+abc')):
             self.assertIsNone(updater.pick_release(github_answer(tag, names), current, prefix))
@@ -87,10 +92,10 @@ class InstallTest(unittest.TestCase):
         target = os.path.join(self.app_dir, 'vault-sync')
         with open(target, 'wb') as f:
             f.write(b'old build')
-        self.add_tar('VaultSync-linux-x64-1.0.3.tar.gz', 'vault-sync', b'new build')
+        self.add_tar('vault-sync-linux-x64-1.0.3.tar.gz', 'vault-sync', b'new build')
         with mock.patch.object(sys, 'executable', target), mock.patch.object(sys, 'platform', 'linux'), \
                 mock.patch.object(sys, 'frozen', True, create=True):
-            self.assertEqual(updater.install(self.release('VaultSync-linux-x64-1.0.3.tar.gz')), target)
+            self.assertEqual(updater.install(self.release('vault-sync-linux-x64-1.0.3.tar.gz')), target)
             with open(target, 'rb') as f:
                 self.assertEqual(f.read(), b'new build')
             self.assertTrue(os.access(target, os.X_OK))
@@ -99,45 +104,30 @@ class InstallTest(unittest.TestCase):
             self.assertEqual(os.listdir(self.app_dir), ['vault-sync'])
 
     def test_windows_zip_build(self):
-        target = os.path.join(self.app_dir, 'Vault Sync.exe')
+        target = os.path.join(self.app_dir, 'vault-sync.exe')
         with open(target, 'wb') as f:
             f.write(b'old exe')
-        with zipfile.ZipFile(os.path.join(self.www, 'VaultSync-windows-x64-1.0.3.zip'), 'w') as z:
-            z.writestr('Vault Sync.exe', b'new exe')
+        with zipfile.ZipFile(os.path.join(self.www, 'vault-sync-windows-x64-1.0.3.zip'), 'w') as z:
+            z.writestr('vault-sync.exe', b'new exe')
         with mock.patch.object(sys, 'executable', target), mock.patch.object(sys, 'platform', 'win32'):
-            updater.install(self.release('VaultSync-windows-x64-1.0.3.zip'))
+            updater.install(self.release('vault-sync-windows-x64-1.0.3.zip'))
         with open(target, 'rb') as f:
             self.assertEqual(f.read(), b'new exe')
-
-    def test_macos_bundle_is_replaced_as_a_whole(self):
-        bundle = os.path.join(self.app_dir, 'Vault Sync.app')
-        new = os.path.join(self.tmp, 'new', 'Vault Sync.app')
-        for root, text in ((bundle, b'old'), (new, b'new')):
-            os.makedirs(os.path.join(root, 'Contents', 'MacOS'))
-            with open(os.path.join(root, 'Contents', 'MacOS', 'Vault Sync'), 'wb') as f:
-                f.write(text)
-        with mock.patch.object(sys, 'executable', os.path.join(bundle, 'Contents', 'MacOS', 'Vault Sync')), \
-                mock.patch.object(sys, 'platform', 'darwin'):
-            self.assertEqual(updater.install_target(), bundle)
-            updater.replace(new, bundle)
-        with open(os.path.join(bundle, 'Contents', 'MacOS', 'Vault Sync'), 'rb') as f:
-            self.assertEqual(f.read(), b'new')
-        self.assertTrue(os.path.isdir(bundle + '.old'))
 
     def test_cancel_leaves_the_build_untouched(self):
         target = os.path.join(self.app_dir, 'vault-sync')
         with open(target, 'wb') as f:
             f.write(b'old build')
-        self.add_tar('VaultSync-linux-x64-1.0.3.tar.gz', 'vault-sync', b'x' * 2000000)
+        self.add_tar('vault-sync-linux-x64-1.0.3.tar.gz', 'vault-sync', b'x' * 2000000)
         with mock.patch.object(sys, 'executable', target), mock.patch.object(sys, 'platform', 'linux'):
             with self.assertRaises(Cancelled):
-                updater.install(self.release('VaultSync-linux-x64-1.0.3.tar.gz'), cancelled=lambda: True)
+                updater.install(self.release('vault-sync-linux-x64-1.0.3.tar.gz'), cancelled=lambda: True)
         self.assertEqual(os.listdir(self.app_dir), ['vault-sync'])
         with open(target, 'rb') as f:
             self.assertEqual(f.read(), b'old build')
 
     def test_unsafe_zip_is_refused(self):
-        target = os.path.join(self.app_dir, 'Vault Sync.exe')
+        target = os.path.join(self.app_dir, 'vault-sync.exe')
         with open(target, 'wb') as f:
             f.write(b'old exe')
         with zipfile.ZipFile(os.path.join(self.www, 'bad.zip'), 'w') as z:
@@ -148,6 +138,20 @@ class InstallTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.app_dir, 'evil.exe')))
         with open(target, 'rb') as f:
             self.assertEqual(f.read(), b'old exe')
+
+
+class RestartTest(unittest.TestCase):
+    def test_posix_replaces_the_process(self):
+        with mock.patch.object(sys, 'platform', 'linux'), mock.patch.object(updater.os, 'execv') as execv:
+            updater.restart_in_terminal('/opt/vault-sync')
+        execv.assert_called_once_with('/opt/vault-sync', ['/opt/vault-sync'])
+
+    def test_windows_waits_for_the_new_build(self):
+        target = os.path.join('Tools', 'vault-sync.exe')
+        with mock.patch.object(sys, 'platform', 'win32'), \
+                mock.patch.object(updater.subprocess, 'call', return_value=3) as call:
+            self.assertEqual(updater.restart_in_terminal(target), 3)
+        call.assert_called_once_with([target])
 
 
 if __name__ == '__main__':

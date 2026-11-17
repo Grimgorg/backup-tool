@@ -1,9 +1,7 @@
-"""Draws the Vault Sync icon and writes it in every format the app and the builds need:
+"""Draws the Vault Sync icon and writes the files the README and the builds use:
 
-  vaultsync/assets/icon.png    1024 px, the source image (also used for the README)
-  vaultsync/assets/window.png  256 px, the window and taskbar icon set by the app at runtime (all OSes)
+  vaultsync/assets/icon.png    1024 px, the source image (README)
   vaultsync/assets/icon.ico    Windows executable icon (16 to 256 px)
-  vaultsync/assets/icon.icns   macOS app bundle icon (16 to 1024 px)
 
 The motif: a vault door (round door with a handle wheel) inside two sync arrows, on a rounded square. It is drawn
 four times larger than needed and scaled down, which smooths the edges. Run after changing the drawing:
@@ -40,7 +38,6 @@ def draw(size):
         t = y / (s - 1)
         pixels.line([(0, y), (s, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(TOP, BOTTOM)) + (255,))
     mask = Image.new('L', (s, s), 0)
-    # About the padding of other macOS app icons, so it doesn't look bigger than them in the Dock.
     margin = 0.08 * s
     ImageDraw.Draw(mask).rounded_rectangle([margin, margin, s - margin, s - margin], radius=0.2 * s, fill=255)
     image.paste(gradient, (0, 0), mask)
@@ -84,10 +81,8 @@ def main():
     os.makedirs(ASSETS, exist_ok=True)
     big = draw(SIZE)
     big.save(os.path.join(ASSETS, 'icon.png'), optimize=True)
-    draw(256).save(os.path.join(ASSETS, 'window.png'), optimize=True)
     big.save(os.path.join(ASSETS, 'icon.ico'), sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
-    big.save(os.path.join(ASSETS, 'icon.icns'))
-    for name in ('icon.png', 'window.png', 'icon.ico', 'icon.icns'):
+    for name in ('icon.png', 'icon.ico'):
         print('{:12} {:>7} bytes'.format(name, os.path.getsize(os.path.join(ASSETS, name))))
 
 

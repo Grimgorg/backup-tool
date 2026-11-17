@@ -8,7 +8,7 @@ The Arkham Horror LCG (SCE) mod also downloads content packs in-game; those are 
 packed into a second zip per mod (see vaultsync.tts.arkham).
 
 The zips are compatible with the stand-alone tts-backup command line tool. Settings (tts.json) are kept in the
-app's settings folder; see vaultsync.paths.
+data folder next to the program; see vaultsync.paths.
 """
 import datetime
 import os
@@ -26,7 +26,7 @@ from vaultsync.tts.mods import default_mods_dir, list_workshop_mods, load_json a
 from vaultsync.tts.package import PackageError, build_extras_package, build_package, restore_package
 from vaultsync.tts.scanner import find_assets
 
-CONFIG_FILE = os.path.join(paths.CONFIG_DIR, 'tts', 'tts.json')
+CONFIG_FILE = os.path.join(paths.HOME, 'tts', 'tts.json')
 EXTRAS_TITLE = 'Downloadable content'
 WORKERS = 8
 

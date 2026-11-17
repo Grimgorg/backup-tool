@@ -5,12 +5,12 @@ locally (x.y.z-dev+...) and running from source never check, so a test build is 
 
 How a build replaces itself while it is running: the running program can be renamed on every OS (Windows locks it
 against deleting and overwriting, not against renaming). So the current build is renamed to "<name>.old", the new
-build is moved to the original place, the new build is started and this one exits. The next start removes the
-".old" leftovers (cleanup_previous()).
+build is moved to the original place, and the new build is started in the same terminal (restart_in_terminal()).
+The next start removes the ".old" leftovers (cleanup_previous()).
 
-  Windows   dist/Vault Sync.exe      single file
-  macOS     Vault Sync.app           app bundle; replaced as a whole folder
-  Linux     vault-sync               single file
+Every OS gets one file, vault-sync (vault-sync.exe on Windows). The release files are named
+vault-sync-<os>-<arch>-<version>; versions before 2.0 (window app) used VaultSync-..., so they never install a
+2.x console build by themselves.
 """
 import json
 import os
@@ -57,11 +57,11 @@ def asset_prefix(system=None, machine=None):
     system = system or sys.platform
     machine = (machine or platform.machine()).lower()
     if system == 'win32' and machine in ('amd64', 'x86_64'):
-        return 'VaultSync-windows-x64-'
+        return 'vault-sync-windows-x64-'
     if system == 'darwin' and machine == 'arm64':
-        return 'VaultSync-macos-arm64-'
+        return 'vault-sync-macos-arm64-'
     if system.startswith('linux') and machine in ('x86_64', 'amd64'):
-        return 'VaultSync-linux-x64-'
+        return 'vault-sync-linux-x64-'
     return None
 
 
@@ -97,13 +97,8 @@ def pick_release(data, current, prefix=None):
 # --- installing -----------------------------------------------------------------------------------
 
 def install_target():
-    """The file or folder that is replaced: the .exe / binary, or the .app bundle on macOS."""
-    executable = os.path.abspath(sys.executable)
-    if sys.platform == 'darwin':
-        bundle = os.path.dirname(os.path.dirname(os.path.dirname(executable)))
-        if bundle.endswith('.app'):
-            return bundle
-    return executable
+    """The file that is replaced: the running build."""
+    return os.path.abspath(sys.executable)
 
 
 def download(release, folder, progress=None, cancelled=lambda: False, timeout=60):
@@ -133,9 +128,6 @@ def extract(archive, folder, target):
         with tarfile.open(archive) as tar:
             # The "data" filter refuses links and paths that point outside the folder (Python 3.12+).
             tar.extractall(folder, **({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))
-    elif sys.platform == 'darwin':
-        # ditto keeps the symlinks and permissions inside the .app bundle; zipfile would lose them.
-        subprocess.run(['ditto', '-x', '-k', archive, folder], check=True, capture_output=True)
     else:
         with zipfile.ZipFile(archive) as z:
             for member in z.namelist():
@@ -143,9 +135,9 @@ def extract(archive, folder, target):
                     raise SyncError('The update file contains an unsafe path: {}'.format(member))
             z.extractall(folder)
     new = os.path.join(folder, name)
-    if not os.path.exists(new):
+    if not os.path.isfile(new):
         raise SyncError('The update file does not contain "{}".'.format(name))
-    if os.path.isfile(new) and sys.platform != 'win32':
+    if sys.platform != 'win32':
         os.chmod(new, os.stat(new).st_mode | 0o755)
     return new
 
@@ -162,15 +154,13 @@ def replace(new, target):
         raise
 
 
-def restart(target):
-    """Starts the build at [target]; the caller then exits."""
-    if sys.platform == 'darwin' and target.endswith('.app'):
-        subprocess.Popen(['open', '-n', target])
-    elif sys.platform == 'win32':
-        subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                         close_fds=True)
-    else:
-        subprocess.Popen([target], start_new_session=True, close_fds=True)
+def restart_in_terminal(target, args=()):
+    """Runs the build at [target] in this terminal, after the app has ended its screen. On macOS and Linux it
+    replaces this process and doesn't return. Windows can't do that with a console program (the shell would take
+    the terminal back while the new build still runs), so it waits for the new build and returns its exit code."""
+    if sys.platform == 'win32':
+        return subprocess.call([target, *args])
+    os.execv(target, [target, *args])
 
 
 def install(release, progress=None, cancelled=lambda: False):

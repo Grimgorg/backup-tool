@@ -203,7 +203,7 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(cfg['podcasts'][0]['enabled'])
         pc.save_config(cfg)
         self.assertEqual(pc.load_config()['podcasts'], cfg['podcasts'])
-        self.assertTrue(pc.CONFIG_FILE.startswith(paths.CONFIG_DIR))
+        self.assertTrue(pc.CONFIG_FILE.startswith(paths.HOME))
         shutil.rmtree(folder)
 
 

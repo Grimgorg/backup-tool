@@ -22,16 +22,11 @@ from vaultsync.gog import organize
 FROZEN = getattr(sys, 'frozen', False)
 GOGREPOC_DIR = os.path.join(SOURCE_ROOT, 'gogrepoc')
 # gogrepoc keeps its token, manifest and log in its working directory, which is this folder.
-WORK_DIR = os.path.join(paths.DATA_DIR, 'gog')
+WORK_DIR = os.path.join(paths.HOME, 'gog')
 TOKEN_FILE = os.path.join(WORK_DIR, 'gog-token.dat')
 MANIFEST_FILE = os.path.join(WORK_DIR, 'gog-manifest.dat')
-SETTINGS_FILE = os.path.join(paths.CONFIG_DIR, 'gog', 'settings.json')
+SETTINGS_FILE = os.path.join(WORK_DIR, 'settings.json')
 ORPHAN_DIR_NAME = '!orphaned'
-
-# Files that older versions (GoG Sync) kept next to the exe; copied over once by migrate_legacy_data().
-LEGACY_DIR = os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else SOURCE_ROOT
-LEGACY_FILES = ('gog-token.dat', 'gog-manifest.dat', 'gog-manifest.dat.bak',
-                'gog-resume-manifest.dat', 'gog-resume-manifest.dat.bak')
 
 organize.MANIFEST = MANIFEST_FILE
 
@@ -59,26 +54,6 @@ RATE_LINE = re.compile(r'^\s*[\d.]+MB\s+([\d.]+)MB/s')
 REMAINING_LINE = re.compile(r'^([\d.]+)GB remaining$')
 
 WHOLE_FOLDER = '(whole folder)'
-
-
-def migrate_legacy_data():
-    """Copies login, manifests and settings of an older GoG Sync install (kept next to its exe) into the
-    app data folders, once. The old files are left in place. Returns the names of the copied files."""
-    if os.path.exists(TOKEN_FILE) or os.path.exists(SETTINGS_FILE):
-        return []
-    copied = []
-    for name in LEGACY_FILES:
-        src = os.path.join(LEGACY_DIR, name)
-        if os.path.isfile(src):
-            os.makedirs(WORK_DIR, exist_ok=True)
-            shutil.copy2(src, os.path.join(WORK_DIR, name))
-            copied.append(name)
-    legacy_settings = os.path.join(LEGACY_DIR, 'settings.json')
-    if os.path.isfile(legacy_settings) and 'save_dir' in load_json(legacy_settings, {}):
-        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-        shutil.copy2(legacy_settings, SETTINGS_FILE)
-        copied.append('settings.json')
-    return copied
 
 
 def load_settings():
