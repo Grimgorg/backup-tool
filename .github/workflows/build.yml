@@ -1,6 +1,6 @@
 # Tests and builds Vault Sync for Windows, macOS and Linux. Every push to main is published as a GitHub release
-# with the next version number (1.0.0, 1.0.1, ...; see version.py). Pull requests and manual runs build test
-# versions (e.g. 1.0.1-dev+abc1234) that are uploaded as workflow artifacts only; a manual run on main with
+# with the next version number (2.0.0, 2.0.1, ...; see version.py). Pull requests and manual runs build test
+# versions (e.g. 2.0.1-dev+abc1234) that are uploaded as workflow artifacts only; a manual run on main with
 # "release" ticked publishes a release like a push does (for when a push did not start the workflow).
 name: Build
 
@@ -59,13 +59,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The release file names are what the updater looks for (vaultsync/updater.py, asset_prefix).
           - os: windows-latest
-            artifact: VaultSync-windows-x64
+            artifact: vault-sync-windows-x64
           - os: macos-latest
-            artifact: VaultSync-macos-arm64
+            artifact: vault-sync-macos-arm64
           # The oldest supported Ubuntu, so the binary also runs on distributions with an older glibc.
           - os: ubuntu-22.04
-            artifact: VaultSync-linux-x64
+            artifact: vault-sync-linux-x64
     runs-on: ${{ matrix.os }}
     env:
       VAULT_SYNC_VERSION: ${{ needs.version.outputs.version }}
@@ -77,10 +78,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
-      - name: Install Tk and a virtual display (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk tk xvfb
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pyinstaller
@@ -94,11 +91,10 @@ jobs:
       - name: Smoke test
         shell: bash
         run: |
-          case "$RUNNER_OS" in
-            Windows) app="dist/Vault Sync.exe" ;;
-            macOS)   app="dist/Vault Sync.app/Contents/MacOS/Vault Sync" ;;
-            Linux)   app="dist/vault-sync" ;;
-          esac
+          app=dist/vault-sync
+          [ "$RUNNER_OS" = Windows ] && app=dist/vault-sync.exe
+          # Keeps the smoke test's data out of dist/ (the build keeps its data next to itself).
+          export VAULT_SYNC_HOME="$RUNNER_TEMP/vault-sync-home"
           # The build carries the version of this run.
           "$app" --version | tee version.txt
           test "$(tr -d '\r' < version.txt)" = "$VAULT_SYNC_VERSION"
@@ -108,12 +104,10 @@ jobs:
           # The bundled gogrepoc and its dependencies load.
           "$app" --gogrepoc -h | tee gogrepoc-help.txt
           grep -q "usage" gogrepoc-help.txt
-          # The window opens and keeps running until it is stopped (exit code 124 = stopped by timeout).
-          if [ "$RUNNER_OS" = Linux ]; then
-            export VAULT_SYNC_HOME="$RUNNER_TEMP/vault-sync-home"
-            status=0; timeout 15 xvfb-run -a "$app" || status=$?
-            test "$status" -eq 124
-          fi
+          # The console app (Textual, bundled lazily-imported modules) starts and shows its tabs.
+          "$app" --check-tui | tee tui.txt
+          grep -q "TUI ok" tui.txt
+          test ! -e dist/vault-sync-data
 
       - name: Package
         shell: bash
@@ -121,11 +115,12 @@ jobs:
           mkdir -p out
           name="${{ matrix.artifact }}-$VAULT_SYNC_VERSION"
           name="${name//+/_}"  # "+" is awkward in download URLs
-          case "$RUNNER_OS" in
-            Windows) 7z a "out/$name.zip" "./dist/Vault Sync.exe" ;;
-            macOS)   ditto -c -k --keepParent "dist/Vault Sync.app" "out/$name.zip" ;;
-            Linux)   tar -czf "out/$name.tar.gz" -C dist vault-sync ;;
-          esac
+          # One file each; tar keeps the executable bit on macOS and Linux.
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a "out/$name.zip" ./dist/vault-sync.exe
+          else
+            tar -czf "out/$name.tar.gz" -C dist vault-sync
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

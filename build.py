@@ -1,10 +1,7 @@
-"""Builds Vault Sync with PyInstaller for the operating system it runs on, into dist/:
+"""Builds Vault Sync with PyInstaller for the operating system it runs on: one console program, dist/vault-sync
+(dist/vault-sync.exe on Windows). It keeps its data in a vault-sync-data folder next to itself (vaultsync.paths).
 
-  Windows   dist/Vault Sync.exe    (single file)
-  macOS     dist/Vault Sync.app    (app bundle)
-  Linux     dist/vault-sync        (single file)
-
-The version shown in the app comes from version.py (a test version such as 1.0.3-dev+abc1234), or from the
+The version shown in the app comes from version.py (a test version such as 2.0.3-dev+abc1234), or from the
 VAULT_SYNC_VERSION environment variable, which the Build workflow sets.
 
 Needs: python -m pip install -r requirements.txt pyinstaller, and the gogrepoc submodule
@@ -28,20 +25,13 @@ def main():
     if not os.path.isfile(os.path.join(gogrepoc, 'gogrepoc.py')):
         sys.exit('gogrepoc is missing. Run: git submodule update --init')
     build = os.path.join(ROOT, 'build')
-    name = APP_ID if sys.platform.startswith('linux') else APP_NAME
-    args = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--windowed', '--name', name,
+    args = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--console', '--name', APP_ID,
             '--distpath', os.path.join(ROOT, 'dist'), '--workpath', build, '--specpath', build,
-            '--paths', gogrepoc, '--hidden-import', 'gogrepoc', '--collect-data', 'sv_ttk',
-            '--exclude-module', 'PyQt5',
-            # The window icon is read at runtime from vaultsync/assets (see make_icon.py).
-            '--add-data', '{}{}vaultsync/assets'.format(os.path.join(ROOT, 'vaultsync', 'assets', 'window.png'),
-                                                        os.pathsep),
-            '--icon', os.path.join(ROOT, 'vaultsync', 'assets',
-                                   'icon.icns' if sys.platform == 'darwin' else 'icon.ico')]
-    if sys.platform == 'darwin':
-        args += ['--onedir', '--osx-bundle-identifier', 'io.github.grimgorg.vaultsync']
-    else:
-        args += ['--onefile']
+            '--paths', gogrepoc, '--hidden-import', 'gogrepoc',
+            # Textual and Rich import widgets and Unicode tables only when they are used.
+            '--collect-submodules', 'textual', '--collect-data', 'textual', '--collect-submodules', 'rich',
+            '--exclude-module', 'tkinter', '--exclude-module', 'PyQt5',
+            '--icon', os.path.join(ROOT, 'vaultsync', 'assets', 'icon.ico')]
     args.append(os.path.join(ROOT, 'app.py'))
     app_version = os.environ.get('VAULT_SYNC_VERSION') or version.compute()
     print('Building {} {}'.format(APP_NAME, app_version))

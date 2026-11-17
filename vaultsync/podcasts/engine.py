@@ -5,11 +5,11 @@ Layout of the archive folder:   <archive folder>/<podcast name>/<NN>_<folder>/<Y
 Which folder an episode goes to is decided by the podcast's folder rules (first matching rule wins, patterns are
 regular expressions matched against the episode title, case-insensitive). Episodes matching no rule get a
 folder named after the start of their title. A folder's number follows the order in which its first episode
-appeared and stays fixed once the folder exists (kept in the app data folder, state.json per podcast); numbers
+appeared and stays fixed once the folder exists (kept in the data folder, state.json per podcast); numbers
 of folders that do not exist (never downloaded into, or emptied) are given out again, so they leave no gaps.
 If that state is missing, existing numbered folders in the archive are picked up again.
 
-The watch list (podcasts.json) is kept in the app's settings folder; see vaultsync.paths.
+The watch list (podcasts.json) is kept in the data folder next to the program; see vaultsync.paths.
 """
 import datetime
 import email.utils
@@ -31,8 +31,8 @@ from vaultsync import APP_NAME, __version__, paths
 from vaultsync.common import Cancelled, SyncError, format_size, load_json, save_json, write_atomic
 
 USER_AGENT = 'Mozilla/5.0 (compatible) VaultSync/%s podcast-archiver' % __version__
-CONFIG_FILE = os.path.join(paths.CONFIG_DIR, 'podcasts', 'podcasts.json')
-STATE_ROOT = os.path.join(paths.DATA_DIR, 'podcasts')
+CONFIG_FILE = os.path.join(paths.HOME, 'podcasts', 'podcasts.json')
+STATE_ROOT = os.path.join(paths.HOME, 'podcasts')
 LOCK_FILE = os.path.join(STATE_ROOT, 'lock')
 NS = {
     'itunes': 'http://www.itunes.com/dtds/podcast-1.0.dtd',
